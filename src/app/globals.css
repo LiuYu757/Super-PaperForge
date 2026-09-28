@@ -1,0 +1,357 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+    --primary: 0 0% 12%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 12%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 12%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 55%;
+    --radius: 0.5rem;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+
+  .dark {
+    --background: 0 0% 9%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 90%;
+    --primary-foreground: 0 0% 12%;
+    --secondary: 0 0% 17%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 17%;
+    --muted-foreground: 0 0% 55%;
+    --accent: 0 0% 17%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 17%;
+    --input: 0 0% 17%;
+    --ring: 0 0% 83%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* ============================================
+   PaperForge Design System — Animations & Utilities
+   ============================================ */
+
+/* Smooth scroll behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ---- Animation Keyframes ---- */
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ---- Utility Animation Classes ---- */
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.5s ease-out forwards;
+}
+
+/* ---- Enhanced Scrollbar ---- */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* ---- Selection Styling ---- */
+
+::selection {
+  background: hsl(24 100% 50% / 0.2);
+  color: inherit;
+}
+
+/* ---- Print Stylesheet ---- */
+
+@media print {
+  /* Hide non-content elements */
+  header, footer, nav,
+  .no-print,
+  [role="navigation"],
+  [data-sonner-toaster],
+  .fixed { display: none !important; }
+
+  /* Reset backgrounds and colors for readability */
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 12pt;
+    line-height: 1.5;
+  }
+
+  /* Clean up links */
+  a { color: black !important; text-decoration: underline; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 9pt; color: #666; }
+
+  /* Page margins */
+  @page { margin: 2cm; }
+
+  /* Prevent page breaks inside cards */
+  .card, article, section { break-inside: avoid; }
+
+  /* Full-width content */
+  .max-w-7xl, .max-w-5xl, .max-w-4xl, .max-w-3xl { max-width: 100% !important; }
+}
+
+
+/* ---- Text Gradient ---- */
+
+.text-gradient {
+  background: linear-gradient(135deg, #f97316, #ea580c, #f97316);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ============================================
+   Landing Page — Premium CSS-only effects
+   ============================================ */
+
+/* ─── Animated gradient background ─── */
+.landing-gradient-bg {
+  background: linear-gradient(
+    135deg,
+    rgba(249, 115, 22, 0.06) 0%,
+    rgba(251, 191, 36, 0.04) 25%,
+    transparent 50%,
+    rgba(249, 115, 22, 0.05) 75%,
+    rgba(234, 88, 12, 0.06) 100%
+  );
+  background-size: 400% 400%;
+  animation: landing-gradient-shift 12s ease-in-out infinite;
+}
+
+@keyframes landing-gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  25% {
+    background-position: 100% 50%;
+  }
+  50% {
+    background-position: 100% 0%;
+  }
+  75% {
+    background-position: 0% 100%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* ─── Dot pattern overlay ─── */
+.landing-dot-pattern {
+  background-image: radial-gradient(
+    circle,
+    rgba(249, 115, 22, 0.15) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+}
+
+/* ─── Gradient text ─── */
+.landing-gradient-text {
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 50%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── CSS-only typewriter effect ─── */
+.landing-typewriter {
+  animation:
+    landing-typing 2.5s steps(28, end) 0.5s 1 normal both,
+    landing-blink-caret 0.75s step-end infinite;
+  width: 0;
+}
+
+@keyframes landing-typing {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@keyframes landing-blink-caret {
+  from,
+  to {
+    border-color: transparent;
+  }
+  50% {
+    border-color: #f97316;
+  }
+}
+
+/* ─── Badge glow ─── */
+.landing-badge-glow {
+  box-shadow: 0 0 20px rgba(249, 115, 22, 0.08);
+}
+
+/* ─── Feature card hover glow ─── */
+.landing-card-glow {
+  background: linear-gradient(
+    135deg,
+    rgba(249, 115, 22, 0.03) 0%,
+    rgba(249, 115, 22, 0.06) 50%,
+    rgba(249, 115, 22, 0.03) 100%
+  );
+}
+
+/* ─── CTA button hover lift ─── */
+.landing-cta-btn {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.landing-cta-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 30px rgba(249, 115, 22, 0.25);
+}
+
+/* ─── Scroll-triggered reveal animations ─── */
+.landing-reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landing-reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Stagger delays for grid children */
+.landing-stagger > .landing-reveal:nth-child(1) { transition-delay: 0ms; }
+.landing-stagger > .landing-reveal:nth-child(2) { transition-delay: 80ms; }
+.landing-stagger > .landing-reveal:nth-child(3) { transition-delay: 160ms; }
+.landing-stagger > .landing-reveal:nth-child(4) { transition-delay: 240ms; }
+.landing-stagger > .landing-reveal:nth-child(5) { transition-delay: 320ms; }
+.landing-stagger > .landing-reveal:nth-child(6) { transition-delay: 400ms; }
+
+/* Fade in from left / right */
+.landing-reveal-left {
+  opacity: 0;
+  transform: translateX(-24px);
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.landing-reveal-left.visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Scale up */
+.landing-reveal-scale {
+  opacity: 0;
+  transform: scale(0.95);
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.landing-reveal-scale.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Skeleton stagger pulse */
+@keyframes stagger-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.skeleton-stagger:nth-child(1) { animation: stagger-pulse 2s ease-in-out infinite 0ms; }
+.skeleton-stagger:nth-child(2) { animation: stagger-pulse 2s ease-in-out infinite 150ms; }
+.skeleton-stagger:nth-child(3) { animation: stagger-pulse 2s ease-in-out infinite 300ms; }
+.skeleton-stagger:nth-child(4) { animation: stagger-pulse 2s ease-in-out infinite 450ms; }
+.skeleton-stagger:nth-child(5) { animation: stagger-pulse 2s ease-in-out infinite 600ms; }
+.skeleton-stagger:nth-child(6) { animation: stagger-pulse 2s ease-in-out infinite 750ms; }

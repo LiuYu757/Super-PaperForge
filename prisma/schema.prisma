@@ -1,0 +1,450 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Registered user account. Supports credential + OAuth login.
+/// Soft-delete NOT supported — use lockedUntil for suspension.
+model User {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email              String    @unique @db.VarChar(255)
+  name               String    @db.VarChar(255)
+  passwordHash       String?   @map("password_hash") @db.VarChar(255)
+  avatarUrl          String?   @map("avatar_url")
+  institution        String?   @db.VarChar(255)
+  bio                String?
+  settings           Json      @default("{}")
+  emailVerified      Boolean   @default(false) @map("email_verified")
+  role               String    @default("user") @db.VarChar(20)
+  storageUsedBytes   BigInt    @default(0) @map("storage_used_bytes")
+  storageQuotaBytes  BigInt    @default(2147483648) @map("storage_quota_bytes")
+  failedLoginAttempts Int      @default(0) @map("failed_login_attempts")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz()
+  tokenVersion       Int       @default(0) @map("token_version")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  oauthAccounts   OAuthAccount[]
+  projectMembers  ProjectMember[]
+  compilations    Compilation[]
+  versions        Version[]
+  templates       Template[]       @relation("TemplateAuthor")
+  gitCredentials  GitCredential[]
+  auditLogs       AuditLog[]
+  createdProjects Project[]        @relation("ProjectCreator")
+  apiTokens       ApiToken[]
+  changeSets      ChangeSet[]
+
+  @@map("users")
+}
+
+/// Personal access token for external automation (a local AI tool, a CLI).
+///
+/// Only the hash is stored; the plaintext is shown once at creation. The
+/// effective permission of a call is always "token scopes ∩ the owner's current
+/// project role", so removing someone from a project also stops their existing
+/// tokens — the token is never an independent grant.
+model ApiToken {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  /// Human-readable label chosen at creation.
+  name        String    @db.VarChar(255)
+  /// SHA-256 of the plaintext token. Never store the token itself.
+  tokenHash   String    @unique @map("token_hash") @db.VarChar(64)
+  /// Short display prefix (e.g. "pfp_a1b2c3") so a user can identify a token
+  /// in a list without revealing it.
+  tokenPrefix String    @map("token_prefix") @db.VarChar(32)
+  /// Granted scopes, e.g. ["project:read","changeset:write"].
+  scopes      String[]
+  /// Project IDs this token may touch. Empty means "every project the owner can
+  /// reach" — prefer scoping to a single paper for an AI tool.
+  projectIds  String[]  @map("project_ids") @db.Uuid
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz()
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz()
+  lastUsedAt  DateTime? @map("last_used_at") @db.Timestamptz()
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("api_tokens")
+}
+
+/// An immutable view of a project at one committed revision.
+///
+/// Compilation inputs and changeset bases both point at a snapshot rather than
+/// at "the project's current files", so a queued build cannot silently mix
+/// files from different points in time.
+model SourceSnapshot {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId  String   @map("project_id") @db.Uuid
+  /// Project revision this snapshot was taken at.
+  revision   BigInt
+  /// File set: path, stable fileId, sha256, size, isBinary, minioKey.
+  manifest   Json
+  /// Hash over the full manifest plus main file, compiler and build settings.
+  /// Two snapshots with the same inputHash compile to the same output, so this
+  /// is the only safe cache key — hashing main.tex alone would miss an edited
+  /// figure or a changed engine.
+  inputHash  String   @map("input_hash") @db.VarChar(64)
+  /// Null identifies a pre-PR-D manifest-only snapshot whose bytes cannot be recovered.
+  sourceHash String?  @map("source_hash") @db.VarChar(64)
+  buildFingerprint String? @map("build_fingerprint") @db.VarChar(64)
+  mainFile   String   @map("main_file") @db.VarChar(255)
+  compiler   String   @db.VarChar(20)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changeSets  ChangeSet[]
+  frozenFiles SnapshotFile[]
+  candidates CandidateSnapshot[]
+  compilations Compilation[]
+
+  @@index([projectId, revision])
+  @@index([projectId, inputHash])
+  @@map("source_snapshots")
+}
+
+/// Frozen bytes or immutable object references for one source snapshot.
+model SnapshotFile {
+  snapshotId String @map("snapshot_id") @db.Uuid
+  fileId     String @map("file_id") @db.Uuid
+  path       String @db.VarChar(1024)
+  sha256     String @db.VarChar(64)
+  sizeBytes  BigInt @map("size_bytes")
+  isBinary   Boolean @map("is_binary")
+  mimeType   String? @map("mime_type") @db.VarChar(255)
+  textContent String? @map("text_content")
+  binaryContent Bytes? @map("binary_content")
+  blobKey String? @map("blob_key")
+
+  snapshot SourceSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@id([snapshotId, fileId])
+  @@index([snapshotId, path])
+  @@map("snapshot_files")
+}
+
+/// A candidate set of edits computed against a base snapshot.
+///
+/// Creating one does not touch the live document. It is compiled and reviewed
+/// first, then applied atomically only if the project is still at the base
+/// revision; otherwise the caller gets a 409 and re-reads.
+model ChangeSet {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String    @map("project_id") @db.Uuid
+  baseSnapshotId  String    @map("base_snapshot_id") @db.Uuid
+  baseRevision    BigInt    @map("base_revision")
+  /// pending | compiling | compiled | applied | failed | reverted
+  status          String    @default("pending") @db.VarChar(20)
+  /// Why the change was made; surfaced in history.
+  message         String?
+  /// The validated operations, frozen at creation. A changeset is immutable
+  /// once it exists: editing it means creating a new one, so a "compiled OK"
+  /// verdict can never be transferred onto different content.
+  operations      Json
+  /// Per-file before/after used to render a diff without recomputing it.
+  diff            Json?
+  /// Hash of the resulting file set, matched again at apply time.
+  resultHash      String?   @map("result_hash") @db.VarChar(64)
+  /// Revision produced when this changeset was applied.
+  appliedRevision BigInt?   @map("applied_revision")
+  appliedAt       DateTime? @map("applied_at") @db.Timestamptz()
+  /// Set when this changeset was created to undo another one.
+  revertsId       String?   @map("reverts_id") @db.Uuid
+  /// Who authored it: the owning user, plus the token when machine-created.
+  actorUserId     String?   @map("actor_user_id") @db.Uuid
+  actorTokenId    String?   @map("actor_token_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  project      Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  baseSnapshot SourceSnapshot @relation(fields: [baseSnapshotId], references: [id], onDelete: Cascade)
+  actorUser    User?          @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  candidateSnapshot CandidateSnapshot?
+
+  @@index([projectId, status])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("change_sets")
+}
+
+/// Full immutable candidate produced from a frozen base plus the proposed edits.
+model CandidateSnapshot {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  changeSetId String @unique @map("change_set_id") @db.Uuid
+  baseSnapshotId String @map("base_snapshot_id") @db.Uuid
+  manifest Json
+  sourceHash String @map("source_hash") @db.VarChar(64)
+  buildFingerprint String? @map("build_fingerprint") @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  changeSet ChangeSet @relation(fields: [changeSetId], references: [id], onDelete: Cascade)
+  baseSnapshot SourceSnapshot @relation(fields: [baseSnapshotId], references: [id], onDelete: Cascade)
+  files CandidateSnapshotFile[]
+  compilations Compilation[]
+
+  @@map("candidate_snapshots")
+}
+
+model CandidateSnapshotFile {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  candidateSnapshotId String @map("candidate_snapshot_id") @db.Uuid
+  fileId String? @map("file_id") @db.Uuid
+  path String @db.VarChar(1024)
+  sha256 String @db.VarChar(64)
+  sizeBytes BigInt @map("size_bytes")
+  isBinary Boolean @map("is_binary")
+  mimeType String? @map("mime_type") @db.VarChar(255)
+  textContent String? @map("text_content")
+  binaryContent Bytes? @map("binary_content")
+  blobKey String? @map("blob_key")
+
+  candidate CandidateSnapshot @relation(fields: [candidateSnapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateSnapshotId, path])
+  @@map("candidate_snapshot_files")
+}
+
+/// Idempotency record for retried writes.
+///
+/// A network retry must not apply the same replacement twice. The key is bound
+/// to principal + project + operation *and* a hash of the request body: the
+/// same key with a different body is a conflict, not a cache hit.
+model IdempotencyRecord {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// "user:<id>" or "token:<id>".
+  principal   String   @db.VarChar(128)
+  projectId   String   @map("project_id") @db.Uuid
+  operation   String   @db.VarChar(64)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(255)
+  /// SHA-256 of the canonical request body.
+  requestHash String   @map("request_hash") @db.VarChar(64)
+  /// Stored response replayed on an identical retry.
+  response    Json
+  statusCode  Int      @map("status_code")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@unique([principal, projectId, operation, idempotencyKey])
+  @@index([createdAt])
+  @@map("idempotency_records")
+}
+
+model OAuthAccount {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String    @map("user_id") @db.Uuid
+  provider              String    @db.VarChar(50)
+  providerAccountId     String    @map("provider_account_id") @db.VarChar(255)
+  encryptedAccessToken  String?   @map("encrypted_access_token")
+  encryptedRefreshToken String?   @map("encrypted_refresh_token")
+  expiresAt             DateTime? @map("expires_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+/// LaTeX project with soft-delete (deletedAt). Access controlled via ProjectMember.
+model Project {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdBy   String?   @map("created_by") @db.Uuid
+  name        String    @db.VarChar(255)
+  description String?
+  compiler    String    @default("pdflatex") @db.VarChar(20)
+  mainFile    String    @default("main.tex") @map("main_file") @db.VarChar(255)
+  isPublic    Boolean   @default(false) @map("is_public")
+  gitRepoPath String?   @map("git_repo_path")
+  archived    Boolean   @default(false)
+  /// Monotonic project revision. Incremented in the same transaction as any
+  /// committed content or compile-input metadata change, so an external client
+  /// can detect that the project moved under it. BigInt because it must never
+  /// wrap; serialised as a decimal string in JSON to avoid JS precision loss.
+  revision    BigInt    @default(0)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  creator      User?           @relation("ProjectCreator", fields: [createdBy], references: [id])
+  members      ProjectMember[]
+  files        File[]
+  compilations Compilation[]
+  versions     Version[]
+  shareLinks   ShareLink[]
+  snapshots    SourceSnapshot[]
+  changeSets   ChangeSet[]
+  templateSource Template?     @relation("TemplateSource")
+
+  @@index([deletedAt])
+  @@map("projects")
+}
+
+/// User-project membership with role (owner/editor/viewer).
+model ProjectMember {
+  projectId String   @map("project_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      String   @db.VarChar(20)
+  joinedAt  DateTime @default(now()) @map("joined_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@index([projectId])
+  @@map("project_members")
+}
+
+/// Project file with soft-delete (deletedAt). Content stored in MinIO.
+model File {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String    @map("project_id") @db.Uuid
+  path      String    @db.VarChar(1024)
+  isBinary  Boolean   @default(false) @map("is_binary")
+  sizeBytes BigInt    @default(0) @map("size_bytes")
+  mimeType  String?   @map("mime_type") @db.VarChar(255)
+  minioKey  String?   @map("minio_key")
+  content   String?   /// Text content stored directly in DB (fallback when MinIO unavailable)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([projectId, path])
+  @@index([projectId, deletedAt])
+  @@map("files")
+}
+
+/// LaTeX compilation job with status tracking and artifact storage.
+model Compilation {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  userId         String?  @map("user_id") @db.Uuid
+  sourceSnapshotId String? @map("source_snapshot_id") @db.Uuid
+  candidateSnapshotId String? @map("candidate_snapshot_id") @db.Uuid
+  sourceHash String? @map("source_hash") @db.VarChar(64)
+  buildFingerprint String? @map("build_fingerprint") @db.VarChar(64)
+  cancelRequestedAt DateTime? @map("cancel_requested_at") @db.Timestamptz()
+  attemptId String? @map("attempt_id") @db.Uuid
+  attemptCount Int @default(0) @map("attempt_count")
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz()
+  startedAt DateTime? @map("started_at") @db.Timestamptz()
+  status         String   @db.VarChar(20)
+  compiler       String   @db.VarChar(20)
+  log            String?
+  pdfMinioKey    String?  @map("pdf_minio_key")
+  pdfData        Bytes?   @map("pdf_data")  /// PDF stored directly in DB when MinIO unavailable
+  synctexMinioKey String? @map("synctex_minio_key")
+  docxMinioKey   String?  @map("docx_minio_key")
+  durationMs     Int?     @map("duration_ms")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id])
+  sourceSnapshot SourceSnapshot? @relation(fields: [sourceSnapshotId], references: [id], onDelete: SetNull)
+  candidateSnapshot CandidateSnapshot? @relation(fields: [candidateSnapshotId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([projectId, userId, status])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([sourceSnapshotId])
+  @@index([candidateSnapshotId])
+  @@map("compilations")
+}
+
+/// Named version snapshot backed by a git commit.
+model Version {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  label     String?  @db.VarChar(255)
+  gitHash   String   @map("git_hash") @db.VarChar(40)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id])
+
+  @@index([projectId])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("versions")
+}
+
+/// Curated or user-submitted project template. Requires admin approval.
+model Template {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String   @db.VarChar(255)
+  description     String?
+  category        String?  @db.VarChar(50)
+  thumbnailUrl    String?  @map("thumbnail_url")
+  sourceProjectId String?  @unique @map("source_project_id") @db.Uuid
+  authorId        String?  @map("author_id") @db.Uuid
+  isApproved      Boolean  @default(false) @map("is_approved")
+  downloadCount   Int      @default(0) @map("download_count")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  sourceProject Project? @relation("TemplateSource", fields: [sourceProjectId], references: [id])
+  author        User?    @relation("TemplateAuthor", fields: [authorId], references: [id])
+
+  @@index([category])
+  @@index([authorId])
+  @@map("templates")
+}
+
+/// Encrypted git remote credential (token encrypted with AES-256-GCM).
+model GitCredential {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String   @map("user_id") @db.Uuid
+  provider               String   @db.VarChar(50)
+  encryptedToken         String?  @map("encrypted_token")
+  sshPublicKey           String?  @map("ssh_public_key")
+  sshEncryptedPrivateKey String?  @map("ssh_encrypted_private_key")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("git_credentials")
+}
+
+/// Time-limited share link for project access invitation.
+model ShareLink {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId  String    @map("project_id") @db.Uuid
+  token      String    @unique @db.VarChar(64)
+  permission String    @db.VarChar(20)
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz()
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("share_links")
+}
+
+/// Admin action audit trail for compliance and security tracking.
+model AuditLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId     String?  @map("admin_id") @db.Uuid
+  actorEmail  String?  @map("actor_email") @db.VarChar(255)
+  action      String   @db.VarChar(50)
+  targetType  String   @map("target_type") @db.VarChar(50)
+  targetId    String   @map("target_id") @db.Uuid
+  details     Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  admin User? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([adminId, createdAt(sort: Desc)])
+  @@index([targetType, targetId])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_log")
+}

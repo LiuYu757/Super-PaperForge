@@ -1,0 +1,277 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma/client"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email               String    @unique @db.VarChar(255)
+  name                String    @db.VarChar(255)
+  passwordHash        String?   @map("password_hash") @db.VarChar(255)
+  avatarUrl           String?   @map("avatar_url")
+  institution         String?   @db.VarChar(255)
+  bio                 String?
+  settings            Json      @default("{}")
+  emailVerified       Boolean   @default(false) @map("email_verified")
+  role                String    @default("user") @db.VarChar(20)
+  storageUsedBytes    BigInt    @default(0) @map("storage_used_bytes")
+  storageQuotaBytes   BigInt    @default(2147483648) @map("storage_quota_bytes")
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime? @map("locked_until") @db.Timestamptz()
+  tokenVersion        Int       @default(0) @map("token_version")
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  oauthAccounts   OAuthAccount[]
+  projectMembers  ProjectMember[]
+  compilations    Compilation[]
+  versions        Version[]
+  templates       Template[]      @relation("TemplateAuthor")
+  gitCredentials  GitCredential[]
+  auditLogs       AuditLog[]
+  createdProjects Project[]       @relation("ProjectCreator")
+
+  @@map("users")
+}
+
+model OAuthAccount {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String    @map("user_id") @db.Uuid
+  provider              String    @db.VarChar(50)
+  providerAccountId     String    @map("provider_account_id") @db.VarChar(255)
+  encryptedAccessToken  String?   @map("encrypted_access_token")
+  encryptedRefreshToken String?   @map("encrypted_refresh_token")
+  expiresAt             DateTime? @map("expires_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+model Project {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdBy   String?   @map("created_by") @db.Uuid
+  name        String    @db.VarChar(255)
+  description String?
+  compiler    String    @default("pdflatex") @db.VarChar(20)
+  mainFile    String    @default("main.tex") @map("main_file") @db.VarChar(255)
+  isPublic    Boolean   @default(false) @map("is_public")
+  gitRepoPath String?   @map("git_repo_path")
+  archived    Boolean   @default(false)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  creator      User?           @relation("ProjectCreator", fields: [createdBy], references: [id])
+  members      ProjectMember[]
+  files        File[]
+  compilations Compilation[]
+  versions     Version[]
+  shareLinks   ShareLink[]
+  templateSource Template?    @relation("TemplateSource")
+
+  @@index([deletedAt])
+  @@map("projects")
+}
+
+model ProjectMember {
+  projectId String   @map("project_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  role      String   @db.VarChar(20)
+  joinedAt  DateTime @default(now()) @map("joined_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@index([projectId])
+  @@map("project_members")
+}
+
+model File {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String    @map("project_id") @db.Uuid
+  path      String    @db.VarChar(1024)
+  isBinary  Boolean   @default(false) @map("is_binary")
+  sizeBytes BigInt    @default(0) @map("size_bytes")
+  mimeType  String?   @map("mime_type") @db.VarChar(255)
+  minioKey  String?   @map("minio_key")
+  content   String?
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz()
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([projectId, path])
+  @@index([projectId, deletedAt])
+  @@map("files")
+}
+
+model Compilation {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId       String   @map("project_id") @db.Uuid
+  userId          String?  @map("user_id") @db.Uuid
+  sourceSnapshotId String? @map("source_snapshot_id") @db.Uuid
+  candidateSnapshotId String? @map("candidate_snapshot_id") @db.Uuid
+  sourceHash String? @map("source_hash") @db.VarChar(64)
+  buildFingerprint String? @map("build_fingerprint") @db.VarChar(64)
+  cancelRequestedAt DateTime? @map("cancel_requested_at") @db.Timestamptz()
+  attemptId String? @map("attempt_id") @db.Uuid
+  attemptCount Int @default(0) @map("attempt_count")
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz()
+  startedAt DateTime? @map("started_at") @db.Timestamptz()
+  status          String   @db.VarChar(20)
+  compiler        String   @db.VarChar(20)
+  log             String?
+  pdfMinioKey     String?  @map("pdf_minio_key")
+  pdfData         Bytes?   @map("pdf_data")
+  synctexMinioKey String?  @map("synctex_minio_key")
+  docxMinioKey    String?  @map("docx_minio_key")
+  durationMs      Int?     @map("duration_ms")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id])
+
+  @@index([projectId])
+  @@index([userId, createdAt])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([projectId, userId, status])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("compilations")
+}
+
+model SourceSnapshot {
+  id String @id @db.Uuid
+  manifest Json
+  sourceHash String? @map("source_hash") @db.VarChar(64)
+  mainFile String @map("main_file") @db.VarChar(255)
+  compiler String @db.VarChar(20)
+  @@map("source_snapshots")
+}
+
+model SnapshotFile {
+  snapshotId String @map("snapshot_id") @db.Uuid
+  fileId String @map("file_id") @db.Uuid
+  path String @db.VarChar(1024)
+  sha256 String @db.VarChar(64)
+  isBinary Boolean @map("is_binary")
+  textContent String? @map("text_content")
+  binaryContent Bytes? @map("binary_content")
+  blobKey String? @map("blob_key")
+  @@id([snapshotId, fileId])
+  @@map("snapshot_files")
+}
+
+model CandidateSnapshot {
+  id String @id @db.Uuid
+  manifest Json
+  sourceHash String @map("source_hash") @db.VarChar(64)
+  @@map("candidate_snapshots")
+}
+
+model CandidateSnapshotFile {
+  id String @id @db.Uuid
+  candidateSnapshotId String @map("candidate_snapshot_id") @db.Uuid
+  path String @db.VarChar(1024)
+  sha256 String @db.VarChar(64)
+  isBinary Boolean @map("is_binary")
+  textContent String? @map("text_content")
+  binaryContent Bytes? @map("binary_content")
+  blobKey String? @map("blob_key")
+  @@map("candidate_snapshot_files")
+}
+
+model Version {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  label     String?  @db.VarChar(255)
+  gitHash   String   @map("git_hash") @db.VarChar(40)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id])
+
+  @@index([projectId])
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("versions")
+}
+
+model Template {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String   @db.VarChar(255)
+  description     String?
+  category        String?  @db.VarChar(50)
+  thumbnailUrl    String?  @map("thumbnail_url")
+  sourceProjectId String?  @unique @map("source_project_id") @db.Uuid
+  authorId        String?  @map("author_id") @db.Uuid
+  isApproved      Boolean  @default(false) @map("is_approved")
+  downloadCount   Int      @default(0) @map("download_count")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  sourceProject Project? @relation("TemplateSource", fields: [sourceProjectId], references: [id])
+  author        User?    @relation("TemplateAuthor", fields: [authorId], references: [id])
+
+  @@index([category])
+  @@index([authorId])
+  @@map("templates")
+}
+
+model GitCredential {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String   @map("user_id") @db.Uuid
+  provider               String   @db.VarChar(50)
+  encryptedToken         String?  @map("encrypted_token")
+  sshPublicKey           String?  @map("ssh_public_key")
+  sshEncryptedPrivateKey String?  @map("ssh_encrypted_private_key")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("git_credentials")
+}
+
+model ShareLink {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId  String    @map("project_id") @db.Uuid
+  token      String    @unique @db.VarChar(64)
+  permission String    @db.VarChar(20)
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz()
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("share_links")
+}
+
+model AuditLog {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId     String?  @map("admin_id") @db.Uuid
+  actorEmail  String?  @map("actor_email") @db.VarChar(255)
+  action      String   @db.VarChar(50)
+  targetType  String   @map("target_type") @db.VarChar(50)
+  targetId    String   @map("target_id") @db.Uuid
+  details     Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  admin User? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([adminId, createdAt(sort: Desc)])
+  @@index([targetType, targetId])
+  @@index([createdAt(sort: Desc)])
+  @@map("audit_log")
+}

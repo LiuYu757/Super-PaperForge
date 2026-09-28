@@ -1,0 +1,17 @@
+{
+  "name": "super-paperforge-mcp",
+  "version": "1.0.0",
+  "description": "MCP server that lets a local AI read and edit Super-PaperForge projects through the versioned external API",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "super-paperforge-mcp": "server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^3.25.76"
+  }
+}

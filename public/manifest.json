@@ -1,0 +1,19 @@
+{
+  "name": "PaperForge",
+  "short_name": "PaperForge",
+  "description": "Open-source collaborative LaTeX editor. Write, collaborate, and publish academic papers.",
+  "start_url": "/projects",
+  "display": "standalone",
+  "theme_color": "#f97316",
+  "background_color": "#ffffff",
+  "orientation": "any",
+  "categories": ["productivity", "education", "utilities"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

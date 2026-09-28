@@ -1,0 +1,17 @@
+# PaperForge - Collaborative LaTeX Editor
+# https://paperforge.dev
+
+User-agent: *
+Allow: /
+Allow: /docs/
+Allow: /pricing
+Allow: /changelog
+Allow: /status
+Disallow: /api/
+Disallow: /admin/
+Disallow: /editor/
+Disallow: /projects/
+Disallow: /settings/
+Disallow: /templates/
+
+Sitemap: https://paperforge.dev/sitemap.xml
