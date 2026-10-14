@@ -1,5 +1,5 @@
 # ── Build Stage ──
-FROM node:22.19.0-alpine AS builder
+FROM node:26.11.1-alpine AS builder
 WORKDIR /app
 
 # Install dependencies first (better cache)
@@ -17,7 +17,7 @@ FROM builder AS production-deps
 RUN npm prune --omit=dev
 
 # ── Production Stage ──
-FROM node:22.19.0-alpine AS runner
+FROM node:26.11.1-alpine AS runner
 WORKDIR /app
 
 # Security: run as non-root
